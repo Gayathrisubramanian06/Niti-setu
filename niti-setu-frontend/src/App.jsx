@@ -3,9 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Header from './components/Header';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
-import FarmerProfile from './pages/FarmerProfile';
-import EligibilityDashboard from './pages/EligibilityDashboard';
-import SchemeChat from './pages/SchemeChat';
+import Dashboard from './pages/Dashboard';
+import SchemeApplication from './pages/SchemeApplication';
 import LoginPage from './pages/LoginPage';
 import SignUp from './pages/SignUp';
 
@@ -20,7 +19,7 @@ const ProtectedRoute = ({ children }) => {
 const PublicRoute = ({ children }) => {
   const user = localStorage.getItem('user');
   if (user) {
-    return <Navigate to="/profile" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 };
@@ -35,9 +34,8 @@ function App() {
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/signup" element={<PublicRoute><SignUp /></PublicRoute>} />
             <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
-            <Route path="/profile" element={<ProtectedRoute><FarmerProfile /></ProtectedRoute>} />
-            <Route path="/dashboard" element={<ProtectedRoute><EligibilityDashboard /></ProtectedRoute>} />
-            <Route path="/chat/:schemeName" element={<ProtectedRoute><SchemeChat /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/apply/:schemeName" element={<ProtectedRoute><SchemeApplication /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

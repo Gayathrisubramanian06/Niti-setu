@@ -91,9 +91,9 @@ const EligibilityDashboard = () => {
                                             className={`w-full py-2 text-sm text-white shadow-md transition-all ${scheme.eligible ? 'bg-green-700 hover:bg-green-800' : 'bg-blue-600 hover:bg-blue-700'}`} 
                                             onClick={(e) => { 
                                                 e.stopPropagation(); 
-                                                navigate(`/chat/${encodeURIComponent(scheme.name)}`, { state: { scheme } }); 
+                                                navigate(`/apply/${encodeURIComponent(scheme.name)}`, { state: { scheme } }); 
                                             }}>
-                                            {scheme.eligible ? "Apply Now & View Checklist" : "Discuss Missing Requirements"}
+                                            {scheme.eligible ? "Apply Now & View Checklist" : "Apply Now (Fill Missing Requirements)"}
                                         </Button>
                                     </div>
                                 </div>

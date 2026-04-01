@@ -157,11 +157,12 @@ Context (Excerpts from official schemes):
 ${contextText}
 ---
 
-Your response MUST be valid JSON containing exactly these three fields:
+Your response MUST be valid JSON containing exactly these four fields:
 {
   "status": "Eligible" or "Not Eligible" or "Unknown",
   "reason": "A 1-2 sentence explanation of why they are or are not eligible based on the rules, combining their profile and the rules.",
-  "citation": "Quote the exact rule or condition from the text that proves your decision, or say 'None'."
+  "citation": "Quote the exact rule or condition from the text that proves your decision, or say 'None'. Format as 'Page X, Paragraph Y: <quote>' if possible.",
+  "documentChecklist": ["List item 1", "List item 2"] // A string array of exactly what documents are needed to apply for the scheme mentioned in the context.
 }`;
 
         console.log("Prompting LLM...");
@@ -179,38 +180,36 @@ Your response MUST be valid JSON containing exactly these three fields:
 });
 
 
-// ================= SCHEME CHAT ASSISTANT =================
-app.post("/api/scheme-chat", async (req, res) => {
+// ================= SCHEME APPLICATION WIZARD ENGINE =================
+app.post("/api/scheme-form", async (req, res) => {
     try {
-        const { schemeName, farmerProfile, chatHistory, userMessage } = req.body;
+        const { schemeName, farmerProfile } = req.body;
 
         if (!vectorStore) {
             return res.status(500).json({ status: "Error", message: "Vector store not initialized yet." });
         }
 
         // Retrieve relevant documents for this specific scheme
-        const query = `Application requirements, eligibility criteria, documents needed, and next steps for ${schemeName}`;
-        console.log("Retrieving documents for scheme chat:", query);
+        const query = `Mandatory eligibility requirements, application documents, and official portal links for ${schemeName}`;
+        console.log("Generating dynamic application form for:", schemeName);
 
         const retrievedDocs = await vectorStore.similaritySearch(query, 3);
         const contextText = retrievedDocs.map(doc => doc.pageContent).join("\n\n");
 
         const llm = new ChatGoogleGenerativeAI({
             model: "gemini-2.5-flash",
+            // Use JSON formatting to force structured output
+            responseMimeType: "application/json",
             apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
-            temperature: 0.3,
+            temperature: 0.1,
         });
         
-        // Format previous conversation
-        const conversationContext = chatHistory && chatHistory.length > 0
-            ? chatHistory.map(msg => `${msg.role === 'user' ? 'Farmer' : 'Assistant'}: ${msg.content}`).join('\n')
-            : "No previous conversation.";
-
         const prompt = `
-You are an expert AI application assistant for the "${schemeName}".
-Your goal is to ONLY ask for missing specific details required for the scheme that are NOT already in the Farmer Profile.
+You are an expert AI application system for the "${schemeName}".
+Your goal is to parse the official scheme guidelines and generate a strict JSON schema for a dynamic HTML form.
+This form will be filled by the farmer to complete their application.
 
-Farmer Profile (Already Confirmed):
+Farmer Profile (Already Confirmed - DO NOT ASK FOR THESE AGAIN):
 ${JSON.stringify(farmerProfile, null, 2)}
 
 Context (Excerpts from ${schemeName} guidelines):
@@ -218,26 +217,39 @@ Context (Excerpts from ${schemeName} guidelines):
 ${contextText}
 ---
 
-Previous Conversation:
-${conversationContext}
-Farmer: ${userMessage}
-
 Strict Instructions:
-1. Analyze the Context to find the mandatory eligibility requirements or documents for ${schemeName}.
-2. Compare them against the Farmer Profile provided above. Do not ask for info already in the profile.
-3. If there are missing requirements or documents (like Aadhaar card, Bank passbook, etc.), ask the farmer if they have them. Ask all missing requirements in ONE concise message.
-4. If the farmer confirms they have the missing items, OR if no items were missing, provide a final confirmation and an application link (e.g., "Great! You are ready to apply. Click here: https://agricoop.nic.in"). Then STOP asking questions.
-5. NEVER ask generic conversational questions (e.g., no "How can I help you?"). Be strictly focused on application completion. 
-6. Keep responses under 3 sentences. Do not use markdown blocks like \`\`\`json. Return pure text response.
+1. Analyze the Context to find the mandatory application requirements and documents for ${schemeName}.
+2. Compare them against the Farmer Profile. 
+3. Identify what specific details or documents are MISSING from the profile, but required to apply (e.g., Aadhaar number, Bank passbook upload, Land Record ID, declarations).
+4. Output EXACTLY ONE valid JSON object with the following structure:
+{
+  "fields": [
+    { "id": "unique_field_name", "label": "Question for the user (e.g., 'Enter your Aadhaar Number')", "type": "text" },
+    { "id": "another_field", "label": "Do you have valid Land Records?", "type": "checkbox" }
+  ],
+  "applicationLink": "Provide the official application URL from the context. If none found, use 'https://www.india.gov.in/topics/agriculture'"
+}
+5. "type" must be either "text", "number", "email", or "checkbox".
+6. Keep the number of fields strictly under 5 to prevent overwhelming the user.
+7. Only return the raw JSON object. No markdown blocks like \`\`\`json.
 `;
 
         const response = await llm.invoke(prompt);
         let rawAnswer = response.content.trim();
+        
+        let schema;
+        try {
+            schema = JSON.parse(rawAnswer);
+        } catch (e) {
+            // Strip markdown block and try again
+            rawAnswer = rawAnswer.replace(/```json/g, '').replace(/```/g, '').trim();
+            schema = JSON.parse(rawAnswer);
+        }
 
-        res.json({ message: rawAnswer });
+        res.json(schema);
     } catch (error) {
-        console.error("Error in /api/scheme-chat:", error);
-        res.status(500).json({ status: "Error", message: "Internal server error connecting to AI assistant." });
+        console.error("Error in /api/scheme-form:", error);
+        res.status(500).json({ status: "Error", message: "Failed to generate dynamic application form." });
     }
 });
 

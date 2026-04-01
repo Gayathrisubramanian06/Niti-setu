@@ -17,7 +17,7 @@ const Header = () => {
         {user ? (
           <>
             <button
-              onClick={() => navigate("/profile")}
+              onClick={() => navigate("/dashboard")}
               className="px-4 py-2 rounded-lg bg-green-800 text-white font-semibold hover:bg-green-600 transition"
             >
               Profile
