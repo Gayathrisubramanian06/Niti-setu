@@ -1,0 +1,32 @@
+[
+    {
+        "id": 1,
+        "name": "PM Kisan Samman Nidhi",
+        "eligible": true,
+        "proof": {
+            "text": "Farmers with cultivable landholding up to 2 hectares are eligible.",
+            "page": 4
+        },
+        "details": "Provides ₹6,000 per year in three equal installments."
+    },
+    {
+        "id": 2,
+        "name": "Pradhan Mantri Fasal Bima Yojana",
+        "eligible": false,
+        "proof": {
+            "text": "Requires completion of form 7/12 and crop notification within 48 hours of sowing.",
+            "page": 12
+        },
+        "details": "Crop insurance scheme for farmers."
+    },
+    {
+        "id": 3,
+        "name": "Kisan Credit Card (KCC)",
+        "eligible": true,
+        "proof": {
+            "text": "All farmers, tenant farmers, and sharecroppers are eligible.",
+            "page": 8
+        },
+        "details": "Timely access to credit for farmers."
+    }
+]
