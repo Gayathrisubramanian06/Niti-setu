@@ -42,13 +42,35 @@ const SchemeApplication = () => {
                     data = await Promise.race([fetchPromise, timeoutPromise]);
                 } catch (err) {
                     console.warn("API quota exceeded or stalled, triggering Hackathon Fallback form:", err);
-                    data = {
-                        fields: [
+                    let fakeFields = [];
+                    let fakeLink = "https://india.gov.in";
+                    
+                    if (decodedSchemeName.toLowerCase().includes('kusum')) {
+                        fakeFields = [
+                            { id: "pump_capacity", label: "Required Pump Capacity (in HP)", type: "number" },
+                            { id: "pump_quote", label: "Do you have a Quotation from a certified vendor?", type: "checkbox" },
+                            { id: "land_docs", label: "Are your Land Ownership documents verified?", type: "checkbox" }
+                        ];
+                        fakeLink = "https://pmkusum.mnre.gov.in";
+                    } else if (decodedSchemeName.toLowerCase().includes('infra')) {
+                        fakeFields = [
+                            { id: "dpr_upload", label: "Do you have a Detailed Project Report (DPR) ready?", type: "checkbox" },
+                            { id: "loan_amt", label: "Estimated Loan Amount Required (₹)", type: "number" },
+                            { id: "bank_sanction", label: "Do you have an in-principle Bank Sanction?", type: "checkbox" }
+                        ];
+                        fakeLink = "https://agriinfra.dac.gov.in";
+                    } else {
+                        fakeFields = [
                             { id: "aadhaar_num", label: "Enter your 12-digit Aadhaar Number", type: "text" },
                             { id: "bank_acc", label: "Enter Aadhaar-Linked Bank Account Number", type: "text" },
                             { id: "khatoni_confirm", label: "Do you possess local Land Ownership Records (Khatoni/7-12)?", type: "checkbox" }
-                        ],
-                        applicationLink: "https://pmkisan.gov.in"
+                        ];
+                        fakeLink = "https://pmkisan.gov.in";
+                    }
+
+                    data = {
+                        fields: fakeFields,
+                        applicationLink: fakeLink
                     };
                 }
 

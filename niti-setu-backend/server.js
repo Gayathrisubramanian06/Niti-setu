@@ -17,12 +17,32 @@ mongoose.connect(process.env.MONGO_URI)
 
 // Farmer Schema
 const farmerSchema = new mongoose.Schema({
+    // 1. Personal
     name: String,
-    username: { type: String, unique: true },
-    password: String,
+    mobile: { type: String, unique: true },
+    aadhaar: String,
+    age: Number,
+    gender: String,
+    // 2. Agricultural Profile
+    landholding: Number,
+    landOwnership: String,
+    crops: [String],
+    irrigation: String,
+    // 3. Socio-Economic Details
+    category: String,
+    incomeRange: String,
+    bankAccount: String,
+    ifsc: String,
+    // 4. Location Details
     state: String,
     district: String,
-    crops: [String]
+    block: String,
+    village: String,
+    // 5. Voice Interaction
+    language: String,
+    // 6. Security & Consent
+    pin: String,
+    dataConsent: Boolean
 });
 
 const Farmer = mongoose.model("Farmer", farmerSchema);
@@ -31,22 +51,27 @@ const Farmer = mongoose.model("Farmer", farmerSchema);
 // ================= SIGN UP =================
 app.post("/signup", async (req, res) => {
     try {
-        const { name, username, password, state, district, crops } = req.body;
+        const { 
+            name, mobile, aadhaar, age, gender,
+            landholding, landOwnership, crops, irrigation,
+            category, incomeRange, bankAccount, ifsc,
+            state, district, block, village,
+            language, pin, dataConsent 
+        } = req.body;
 
-        const existingUser = await Farmer.findOne({ username });
+        const existingUser = await Farmer.findOne({ mobile });
         if (existingUser) {
-            return res.status(400).json({ message: "Username already exists" });
+            return res.status(400).json({ message: "Mobile number already registered" });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPin = await bcrypt.hash(pin, 10);
 
         const newFarmer = new Farmer({
-            name,
-            username,
-            password: hashedPassword,
-            state,
-            district,
-            crops
+            name, mobile, aadhaar, age, gender,
+            landholding, landOwnership, crops, irrigation,
+            category, incomeRange, bankAccount, ifsc,
+            state, district, block, village,
+            language, pin: hashedPin, dataConsent
         });
 
         await newFarmer.save();
@@ -54,6 +79,7 @@ app.post("/signup", async (req, res) => {
         res.json({ message: "Account created successfully" });
 
     } catch (error) {
+        console.error("Signup error:", error);
         res.status(500).json({ message: "Server error" });
     }
 });
@@ -62,21 +88,22 @@ app.post("/signup", async (req, res) => {
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
     try {
-        const { username, password } = req.body;
+        const { mobile, pin } = req.body;
 
-        const farmer = await Farmer.findOne({ username });
+        const farmer = await Farmer.findOne({ mobile });
         if (!farmer) {
-            return res.status(400).json({ message: "Invalid credentials" });
+            return res.status(400).json({ message: "Invalid credentials (Mobile or PIN)" });
         }
 
-        const isMatch = await bcrypt.compare(password, farmer.password);
+        const isMatch = await bcrypt.compare(pin, farmer.pin);
         if (!isMatch) {
-            return res.status(400).json({ message: "Invalid credentials" });
+            return res.status(400).json({ message: "Invalid credentials (Mobile or PIN)" });
         }
 
         res.json({ message: "Login successful", farmer });
 
     } catch (error) {
+        console.error("Login error:", error);
         res.status(500).json({ message: "Server error" });
     }
 });
@@ -143,7 +170,10 @@ app.post("/api/check-eligibility", async (req, res) => {
 
         const prompt = `
 You are an expert AI eligibility engine for Indian agricultural schemes.
-Based ONLY on the provided Context text below, determine if the farmer is eligible.
+Based ONLY on the provided Context text below, determine if the farmer is eligible for each of the following three schemes:
+1. PM-KISAN
+2. PM-KUSUM
+3. Agriculture Infrastructure Fund (AIF)
 
 Farmer Profile:
 - State: ${state || "Not provided"}
@@ -157,12 +187,17 @@ Context (Excerpts from official schemes):
 ${contextText}
 ---
 
-Your response MUST be valid JSON containing exactly these four fields:
+Your response MUST be exactly ONE valid JSON object containing an array of exactly three evaluations in this format:
 {
-  "status": "Eligible" or "Not Eligible" or "Unknown",
-  "reason": "A 1-2 sentence explanation of why they are or are not eligible based on the rules, combining their profile and the rules.",
-  "citation": "Quote the exact rule or condition from the text that proves your decision, or say 'None'. Format as 'Page X, Paragraph Y: <quote>' if possible.",
-  "documentChecklist": ["List item 1", "List item 2"] // A string array of exactly what documents are needed to apply for the scheme mentioned in the context.
+  "schemes": [
+    {
+      "name": "Scheme Name (e.g., Pradhan Mantri Kisan Samman Nidhi)",
+      "status": "Eligible" or "Not Eligible" or "Unknown",
+      "reason": "A 1-2 sentence explanation of why they are or are not eligible based on their profile vs rules.",
+      "citation": "Quote the exact rule or condition from the text that proves your decision. Format as 'Page X: <quote>'.",
+      "documentChecklist": ["Document 1", "Document 2"]
+    }
+  ]
 }`;
 
         console.log("Prompting LLM...");
