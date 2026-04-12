@@ -4,7 +4,6 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 require("dotenv").config();
 
-
 const app = express();
 
 app.use(cors());
@@ -17,30 +16,24 @@ mongoose.connect(process.env.MONGO_URI)
 
 // Farmer Schema
 const farmerSchema = new mongoose.Schema({
-    // 1. Personal
     name: String,
     mobile: { type: String, unique: true },
     aadhaar: String,
     age: Number,
     gender: String,
-    // 2. Agricultural Profile
     landholding: Number,
     landOwnership: String,
     crops: [String],
     irrigation: String,
-    // 3. Socio-Economic Details
     category: String,
     incomeRange: String,
     bankAccount: String,
     ifsc: String,
-    // 4. Location Details
     state: String,
     district: String,
     block: String,
     village: String,
-    // 5. Voice Interaction
     language: String,
-    // 6. Security & Consent
     pin: String,
     dataConsent: Boolean
 });
@@ -51,12 +44,12 @@ const Farmer = mongoose.model("Farmer", farmerSchema);
 // ================= SIGN UP =================
 app.post("/signup", async (req, res) => {
     try {
-        const { 
+        const {
             name, mobile, aadhaar, age, gender,
             landholding, landOwnership, crops, irrigation,
             category, incomeRange, bankAccount, ifsc,
             state, district, block, village,
-            language, pin, dataConsent 
+            language, pin, dataConsent
         } = req.body;
 
         const existingUser = await Farmer.findOne({ mobile });
@@ -75,7 +68,6 @@ app.post("/signup", async (req, res) => {
         });
 
         await newFarmer.save();
-
         res.json({ message: "Account created successfully" });
 
     } catch (error) {
@@ -108,8 +100,10 @@ app.post("/login", async (req, res) => {
     }
 });
 
+
 const { MongoClient } = require("mongodb");
-const { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } = require("@langchain/google-genai");
+const { GoogleGenerativeAIEmbeddings } = require("@langchain/google-genai");
+const { ChatGroq } = require("@langchain/groq");
 const { MongoDBAtlasVectorSearch } = require("@langchain/mongodb");
 
 // MongoDB Atlas Client for Vector Search
@@ -136,6 +130,16 @@ mongoClient.connect().then(() => {
 }).catch(err => console.error("Vector Store Error:", err));
 
 
+// ================= SHARED LLM HELPER =================
+function getLLM() {
+    return new ChatGroq({
+        model: "llama3-70b-8192",
+        apiKey: process.env.GROQ_API_KEY,
+        temperature: 0,
+    });
+}
+
+
 // ================= RAG ELIGIBILITY CHECK =================
 app.post("/api/check-eligibility", async (req, res) => {
     try {
@@ -145,11 +149,9 @@ app.post("/api/check-eligibility", async (req, res) => {
             return res.status(500).json({ status: "Error", message: "Vector store not initialized yet." });
         }
 
-        // 1. Construct the search query
         const query = `Eligibility criteria scheme benefits agriculture for farmer in ${state} with ${landholding} hectares farming ${crop} category ${category}`;
         console.log("Retrieving documents for query:", query);
 
-        // 2. Retrieve relevant documents (chunks)
         const retrievedDocs = await vectorStore.similaritySearch(query, 4);
         const contextText = retrievedDocs.map(doc => doc.pageContent).join("\n\n");
 
@@ -161,12 +163,7 @@ app.post("/api/check-eligibility", async (req, res) => {
             });
         }
 
-        // 3. Generate response with LLM
-        const llm = new ChatGoogleGenerativeAI({
-            model: "gemini-2.5-flash",
-            apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
-            temperature: 0,
-        });
+        const llm = getLLM();
 
         const prompt = `
 You are an expert AI eligibility engine for Indian agricultural schemes.
@@ -210,7 +207,12 @@ Your response MUST be exactly ONE valid JSON object containing an array of exact
         res.json(jsonResponse);
     } catch (error) {
         console.error("Error in /api/check-eligibility:", error);
-        res.status(500).json({ status: "Error", reason: "Internal server error connecting to AI engine.", citation: "None", errorDetails: error.stack || error.toString() });
+        res.status(500).json({
+            status: "Error",
+            reason: "Internal server error connecting to AI engine.",
+            citation: "None",
+            errorDetails: error.stack || error.toString()
+        });
     }
 });
 
@@ -224,21 +226,18 @@ app.post("/api/scheme-form", async (req, res) => {
             return res.status(500).json({ status: "Error", message: "Vector store not initialized yet." });
         }
 
-        // Retrieve relevant documents for this specific scheme
         const query = `Mandatory eligibility requirements, application documents, and official portal links for ${schemeName}`;
         console.log("Generating dynamic application form for:", schemeName);
 
         const retrievedDocs = await vectorStore.similaritySearch(query, 3);
         const contextText = retrievedDocs.map(doc => doc.pageContent).join("\n\n");
 
-        const llm = new ChatGoogleGenerativeAI({
-            model: "gemini-2.5-flash",
-            // Use JSON formatting to force structured output
-            responseMimeType: "application/json",
-            apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+        const llm = new ChatGroq({
+            model: "llama3-70b-8192",
+            apiKey: process.env.GROQ_API_KEY,
             temperature: 0.1,
         });
-        
+
         const prompt = `
 You are an expert AI application system for the "${schemeName}".
 Your goal is to parse the official scheme guidelines and generate a strict JSON schema for a dynamic HTML form.
@@ -254,29 +253,28 @@ ${contextText}
 
 Strict Instructions:
 1. Analyze the Context to find the mandatory application requirements and documents for ${schemeName}.
-2. Compare them against the Farmer Profile. 
-3. Identify what specific details or documents are MISSING from the profile, but required to apply (e.g., Aadhaar number, Bank passbook upload, Land Record ID, declarations).
+2. Compare them against the Farmer Profile.
+3. Identify what specific details or documents are MISSING from the profile, but required to apply.
 4. Output EXACTLY ONE valid JSON object with the following structure:
 {
   "fields": [
-    { "id": "unique_field_name", "label": "Question for the user (e.g., 'Enter your Aadhaar Number')", "type": "text" },
+    { "id": "unique_field_name", "label": "Question for the user", "type": "text" },
     { "id": "another_field", "label": "Do you have valid Land Records?", "type": "checkbox" }
   ],
-  "applicationLink": "Provide the official application URL from the context. If none found, use 'https://www.india.gov.in/topics/agriculture'"
+  "applicationLink": "Official application URL from context, or 'https://www.india.gov.in/topics/agriculture'"
 }
 5. "type" must be either "text", "number", "email", or "checkbox".
-6. Keep the number of fields strictly under 5 to prevent overwhelming the user.
-7. Only return the raw JSON object. No markdown blocks like \`\`\`json.
+6. Keep the number of fields strictly under 5.
+7. Only return the raw JSON object. No markdown blocks.
 `;
 
         const response = await llm.invoke(prompt);
         let rawAnswer = response.content.trim();
-        
+
         let schema;
         try {
             schema = JSON.parse(rawAnswer);
         } catch (e) {
-            // Strip markdown block and try again
             rawAnswer = rawAnswer.replace(/```json/g, '').replace(/```/g, '').trim();
             schema = JSON.parse(rawAnswer);
         }
@@ -287,5 +285,254 @@ Strict Instructions:
         res.status(500).json({ status: "Error", message: "Failed to generate dynamic application form." });
     }
 });
+
+
+// =====================================================================
+// ================= VOICE QUERY =======================================
+// =====================================================================
+
+const LANG_NAMES = {
+    "kn-IN": "Kannada",
+    "hi-IN": "Hindi",
+    "ta-IN": "Tamil",
+    "ml-IN": "Malayalam",
+};
+
+async function translateToEnglish(text, langCode) {
+    const langName = LANG_NAMES[langCode] || "Indian language";
+    const llm = getLLM();
+    const response = await llm.invoke(
+        `Translate the following ${langName} text to English accurately.
+Return ONLY the translated English text with no extra commentary.
+
+${langName} text:
+${text}`
+    );
+    return response.content.trim();
+}
+
+app.post("/api/translate", async (req, res) => {
+    try {
+        const { text, langCode } = req.body;
+        if (!text) return res.status(400).json({ error: "Missing text" });
+        
+        const llm = getLLM();
+        const langName = LANG_NAMES[langCode] || "the local Indian language";
+        const response = await llm.invoke(
+            `Translate the following text to ${langName}. Return ONLY the translated text, no extra commentary:\n\n${text}`
+        );
+        res.json({ translatedText: response.content.trim() });
+    } catch (error) {
+        console.error("Translation error:", error);
+        res.status(500).json({ error: "Failed to translate" });
+    }
+});
+
+async function extractFarmerProfile(englishText, baseProfile = {}) {
+    const llm = getLLM();
+    const response = await llm.invoke(
+        `Extract farmer profile details from the following English text spoken by a farmer.
+Return ONLY a valid JSON object with these exact keys:
+{
+  "state": "state name or null",
+  "district": "district name or null",
+  "landholding": number in hectares or null,
+  "crop": "crop name or null",
+  "category": "SC/ST/OBC/General or null"
+}
+
+If a field is not mentioned, return null for that field.
+Do not guess. Only extract what is explicitly stated.
+
+Farmer speech:
+${englishText}`
+    );
+
+    let raw = response.content.replace(/```json/g, "").replace(/```/g, "").trim();
+    let extracted = {};
+    try {
+        extracted = JSON.parse(raw);
+    } catch (e) {
+        console.warn("[voice-query] Could not parse profile extraction JSON, using base profile only.");
+    }
+
+    return {
+        state: extracted.state || baseProfile.state || "Not provided",
+        district: extracted.district || baseProfile.district || "Not provided",
+        landholding: extracted.landholding ?? baseProfile.landholding ?? 0,
+        crop: extracted.crop || (baseProfile.crops && baseProfile.crops[0]) || "Not provided",
+        category: extracted.category || baseProfile.category || "General",
+    };
+}
+
+async function runEligibilityRAG(profile) {
+    const { state, district, landholding, crop, category } = profile;
+
+    const query = `Eligibility criteria scheme benefits agriculture for farmer in ${state} with ${landholding} hectares farming ${crop} category ${category}`;
+    const retrievedDocs = await vectorStore.similaritySearch(query, 4);
+    const contextText = retrievedDocs.map(doc => doc.pageContent).join("\n\n");
+
+    if (!contextText.trim()) return null;
+
+    const llm = getLLM();
+
+    const prompt = `
+You are an expert AI eligibility engine for Indian agricultural schemes.
+Based ONLY on the provided Context text below, determine if the farmer is eligible for each scheme:
+1. PM-KISAN
+2. PM-KUSUM
+3. Agriculture Infrastructure Fund (AIF)
+
+Farmer Profile:
+- State: ${state}
+- District: ${district}
+- Landholding: ${landholding} hectares
+- Crop: ${crop}
+- Category: ${category}
+
+Context:
+---
+${contextText}
+---
+
+Respond with exactly ONE valid JSON object:
+{
+  "schemes": [
+    {
+      "name": "Full scheme name",
+      "status": "Eligible" or "Not Eligible" or "Unknown",
+      "reason": "1-2 sentence explanation.",
+      "citation": "Exact quote from context. Format: 'Page X: <quote>'.",
+      "documentChecklist": ["Document 1", "Document 2"]
+    }
+  ]
+}`;
+
+    const response = await llm.invoke(prompt);
+    const raw = response.content.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(raw);
+    return parsed.schemes;
+}
+
+async function buildLocalizedSummary(schemes, langCode) {
+    const langName = LANG_NAMES[langCode] || "Hindi";
+    const llm = getLLM();
+
+    const summaryLines = schemes.map(s =>
+        `${s.name}: ${s.status}. ${s.reason}`
+    ).join(" ");
+
+    const response = await llm.invoke(
+        `Translate the following eligibility result to ${langName}.
+Use very simple language suitable for a rural farmer with limited literacy.
+Be warm and clear. Return ONLY the translated text.
+
+English result:
+${summaryLines}`
+    );
+
+    return response.content.trim();
+}
+
+app.post("/api/voice-query", async (req, res) => {
+    const { text, language, farmerProfile: baseProfile = {} } = req.body;
+
+    if (!text || !text.trim()) {
+        return res.status(400).json({ error: "No transcript text received." });
+    }
+
+    if (!vectorStore) {
+        return res.status(500).json({ error: "Vector store not ready yet." });
+    }
+
+    const langCode = language || "hi-IN";
+
+    try {
+        console.log(`[voice-query] Received (${langCode}): ${text}`);
+        const englishText = await translateToEnglish(text, langCode);
+        console.log(`[voice-query] English: ${englishText}`);
+
+        const profile = await extractFarmerProfile(englishText, baseProfile);
+        console.log(`[voice-query] Extracted profile:`, profile);
+
+        const schemes = await runEligibilityRAG(profile);
+        if (!schemes) {
+            const fallback = await buildLocalizedSummary(
+                [{ name: "Schemes", status: "Unknown", reason: "No relevant documents found in the database." }],
+                langCode
+            );
+            return res.json({ result: fallback, schemes: [], profile });
+        }
+
+        const localizedResult = await buildLocalizedSummary(schemes, langCode);
+        console.log(`[voice-query] Localized (${langCode}): ${localizedResult}`);
+
+        res.json({
+            result: localizedResult,
+            schemes,
+            profile,
+            englishText,
+        });
+
+    } catch (error) {
+        console.error("[voice-query] Error:", error);
+        res.status(500).json({ error: "Failed to process voice query.", details: error.message });
+    }
+});
+
+
+// ================= EXTRACT SINGLE FIELD FROM VOICE =================
+app.post("/api/extract-field", async (req, res) => {
+    try {
+        const { text, language, fieldKey, fieldLabel } = req.body;
+
+        if (!text || !fieldKey) {
+            return res.status(400).json({ value: null, error: "Missing text or fieldKey" });
+        }
+
+        const llm = getLLM();
+
+        const prompt = `A farmer spoke the following in their local language (language code: ${language || "hi-IN"}).
+They were asked to provide their "${fieldLabel}" (field key: "${fieldKey}").
+
+Farmer's speech:
+"${text}"
+
+Your task:
+1. Understand what the farmer said (translate mentally if needed).
+2. Extract ONLY the value for the field "${fieldKey}" (${fieldLabel}).
+3. Return ONLY a valid JSON object in this exact format:
+   { "value": "<extracted value>" }
+
+Rules:
+- For numeric fields (age, landholding): return only the number as a string, e.g. "2.5"
+- For text fields (name, state, district, crop, etc.): return the clean value, e.g. "Maharashtra"
+- For category: normalize to one of: SC / ST / OBC / General
+- For gender: normalize to Male / Female / Other
+- For crops: return a single crop name string
+- For irrigation: normalize to Drip / Sprinkler / Canal / Rainfed / Other
+- For landOwnership: normalize to Owned / Leased / Sharecropped
+- For incomeRange: return the range as stated, e.g. "50000-100000"
+- If you cannot find any relevant value in the speech, return: { "value": null }
+- Return ONLY the JSON object. No markdown, no explanation.`;
+
+        const response = await llm.invoke(prompt);
+        let raw = response.content.replace(/```json/g, "").replace(/```/g, "").trim();
+
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch {
+            return res.json({ value: null });
+        }
+
+        res.json({ value: parsed.value ?? null });
+
+    } catch (error) {
+        console.error("Error in /api/extract-field:", error);
+        res.status(500).json({ value: null, error: "Failed to extract field value." });
+    }
+});
+
 
 app.listen(5000, () => console.log("Server running on port 5000 🚀"));

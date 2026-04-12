@@ -12,8 +12,17 @@ const Dashboard = () => {
     const [formData, setFormData] = useState({
         name: '', age: '', landholding: '', state: '', district: '', crop: '', category: 'General'
     });
+    const [language, setLanguage] = useState('hi-IN');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+
+    const LANGUAGES = [
+        { code: 'hi-IN', label: 'हिन्दी (Hindi)' },
+        { code: 'kn-IN', label: 'ಕನ್ನಡ (Kannada)' },
+        { code: 'ta-IN', label: 'தமிழ் (Tamil)' },
+        { code: 'ml-IN', label: 'മലയാളം (Malayalam)' },
+        { code: 'en-IN', label: 'English (India)' },
+    ];
 
     // -- Right Side State (Schemes) --
     const [schemes, setSchemes] = useState([]);
@@ -49,7 +58,7 @@ const Dashboard = () => {
         }
     }, []);
 
-    const handleVoiceData = (data) => setFormData(prev => ({ ...prev, ...data }));
+    const handleVoiceData = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
     const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
     // -- Submit Profile for Checking --
@@ -141,7 +150,7 @@ const Dashboard = () => {
     const toggleExpand = (id) => setExpandedScheme(expandedScheme === id ? null : id);
 
     // -- TTS Level-Up Feature --
-    const playTTS = (e, schemeId, text) => {
+    const playTTS = async (e, schemeId, scheme) => {
         e.stopPropagation();
         if ('speechSynthesis' in window) {
             if (speakingScheme === schemeId && window.speechSynthesis.speaking) {
@@ -151,9 +160,53 @@ const Dashboard = () => {
             }
 
             window.speechSynthesis.cancel();
-            
+
+            let text = `Result for ${scheme.name}. ${scheme.eligible ? 'You are eligible.' : 'You are not eligible.'} Reason: ${scheme.details}`;
+
+            // If a local language is selected, translate the text via backend before speaking
+            if (language && language !== 'en-IN') {
+                try {
+                    setSpeakingScheme('translating'); 
+                    const res = await fetch(`${config.API_BASE_URL}/api/translate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text, langCode: language })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.translatedText) {
+                        text = data.translatedText;
+                    } else {
+                        console.warn("Translation API error:", data);
+                        alert("Translation failed (likely AI quota exceeded). Falling back to English text.");
+                    }
+                } catch (err) {
+                    console.error("Translation for TTS failed:", err);
+                    alert("Translation server error. Falling back to English.");
+                }
+            }
+
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'en-IN'; // Indian English
+            utterance.lang = language || 'hi-IN';
+            
+            const voices = window.speechSynthesis.getVoices();
+            let preferredVoice = voices.find(v => v.lang === language && v.name.toLowerCase().includes('female'));
+            
+            // If no designated 'female' voice is found (very common for Indian languages on Windows/Chrome),
+            // just grab the first voice that matches the exact language code
+            if (!preferredVoice) {
+                preferredVoice = voices.find(v => v.lang === language || v.lang.replace('_', '-') === language);
+            }
+            
+            // Absolute fallback: match the base language (e.g., 'hi' instead of 'hi-IN')
+            if (!preferredVoice && language) {
+                const shortLang = language.split('-')[0];
+                preferredVoice = voices.find(v => v.lang.startsWith(shortLang));
+            }
+
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            }
+
             utterance.onend = () => setSpeakingScheme(null);
             utterance.onerror = () => setSpeakingScheme(null);
             
@@ -190,13 +243,19 @@ const Dashboard = () => {
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                         <div className="mb-6">
                             <h2 className="text-xl font-bold text-gray-800">Farmer Profile</h2>
-                            <p className="text-sm text-gray-500 mt-1">Use voice or type to update your records.</p>
-                        </div>
-                        
-                        <div className="flex justify-center mb-6 py-4 bg-green-50/50 rounded-xl border border-green-100">
-                            <div className="text-center space-y-2">
-                                <p className="text-xs font-semibold uppercase tracking-wider text-green-700">Voice Input</p>
-                                <VoiceInput onVoiceData={handleVoiceData} />
+                            <p className="text-sm text-gray-500 mt-1 mb-4">Use voice or type to update your records.</p>
+                            
+                            <div className="flex items-center gap-3">
+                                <label className="text-sm font-medium text-gray-600 whitespace-nowrap">Voice language:</label>
+                                <select
+                                    value={language}
+                                    onChange={e => setLanguage(e.target.value)}
+                                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                >
+                                    {LANGUAGES.map(l => (
+                                        <option key={l.code} value={l.code}>{l.label}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
 
@@ -207,32 +266,50 @@ const Dashboard = () => {
                         )}
 
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="relative">
-                                <User className="absolute left-3 top-3 text-gray-400" size={20} />
-                                <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none transition" required />
+                            <div className="flex gap-2 items-center">
+                                <div className="relative flex-1">
+                                    <User className="absolute left-3 top-3 text-gray-400" size={20} />
+                                    <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none transition" required />
+                                </div>
+                                <VoiceInput fieldKey="name" fieldLabel="Full Name" language={language} onValue={(v) => handleVoiceData('name', v)} className="h-10 w-10 shrink-0" />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <input type="number" name="age" placeholder="Age" value={formData.age} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" required />
-                                <div className="relative">
-                                    <Ruler className="absolute left-3 top-2.5 text-gray-400" size={18} />
-                                    <input type="number" name="landholding" placeholder="Land (Hectares)" value={formData.landholding} onChange={handleChange} className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" required />
+                                <div className="flex gap-2 items-center">
+                                    <input type="number" name="age" placeholder="Age" value={formData.age} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" required />
+                                    <VoiceInput fieldKey="age" fieldLabel="Age" language={language} onValue={(v) => handleVoiceData('age', v)} className="h-10 w-10 shrink-0" />
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <div className="relative flex-1">
+                                        <Ruler className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                                        <input type="number" name="landholding" placeholder="Land (Hectares)" value={formData.landholding} onChange={handleChange} className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" required />
+                                    </div>
+                                    <VoiceInput fieldKey="landholding" fieldLabel="Landholding" language={language} onValue={(v) => handleVoiceData('landholding', v)} className="h-10 w-10 shrink-0" />
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <input type="text" name="crop" placeholder="Main Crop" value={formData.crop} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" />
-                                <select name="category" value={formData.category} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none bg-white">
-                                    <option value="General">General</option>
-                                    <option value="OBC">OBC</option>
-                                    <option value="SC">SC</option>
-                                    <option value="ST">ST</option>
-                                </select>
+                                <div className="flex gap-2 items-center">
+                                    <input type="text" name="crop" placeholder="Main Crop" value={formData.crop} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" />
+                                    <VoiceInput fieldKey="crop" fieldLabel="Main Crop" language={language} onValue={(v) => handleVoiceData('crop', v)} className="h-10 w-10 shrink-0" />
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <select name="category" value={formData.category} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none bg-white">
+                                        <option value="General">General</option>
+                                        <option value="OBC">OBC</option>
+                                        <option value="SC">SC</option>
+                                        <option value="ST">ST</option>
+                                    </select>
+                                    <VoiceInput fieldKey="category" fieldLabel="Category" language={language} onValue={(v) => handleVoiceData('category', v)} className="h-10 w-10 shrink-0" />
+                                </div>
                             </div>
 
-                            <div className="relative">
-                                <MapPin className="absolute left-3 top-3 text-gray-400" size={20} />
-                                <input type="text" name="state" placeholder="State" value={formData.state} onChange={handleChange} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" required />
+                            <div className="flex gap-2 items-center">
+                                <div className="relative flex-1">
+                                    <MapPin className="absolute left-3 top-3 text-gray-400" size={20} />
+                                    <input type="text" name="state" placeholder="State" value={formData.state} onChange={handleChange} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none" required />
+                                </div>
+                                <VoiceInput fieldKey="state" fieldLabel="State" language={language} onValue={(v) => handleVoiceData('state', v)} className="h-10 w-10 shrink-0" />
                             </div>
 
                             <Button type="submit" className="w-full py-3 shadow-md mt-6" disabled={loading}>
@@ -271,7 +348,7 @@ const Dashboard = () => {
                                         
                                         <div className="flex items-center gap-4">
                                             <button 
-                                                onClick={(e) => playTTS(e, scheme.id, `Result for ${scheme.name}. ${scheme.eligible ? 'You are eligible.' : 'You are not eligible.'} Reason: ${scheme.details}`)}
+                                                onClick={(e) => playTTS(e, scheme.id, scheme)}
                                                 className={`p-2 rounded-full shadow-sm transition ${speakingScheme === scheme.id ? 'bg-red-50 hover:bg-red-100' : 'bg-white hover:bg-gray-100'}`}
                                                 title={speakingScheme === scheme.id ? "Stop reading" : "Read aloud"}
                                             >
