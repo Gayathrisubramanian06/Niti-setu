@@ -131,9 +131,18 @@ mongoClient.connect().then(() => {
 
 
 // ================= SHARED LLM HELPER =================
+if (!process.env.GROQ_API_KEY) {
+    console.warn("⚠️  WARNING: GROQ_API_KEY is missing from .env! Voice input, eligibility check, and AI features will NOT work.");
+    console.warn("   Get a free key at: https://console.groq.com → API Keys → Create API Key");
+    console.warn("   Then add to .env: GROQ_API_KEY=your_key_here");
+}
+
 function getLLM() {
+    if (!process.env.GROQ_API_KEY) {
+        throw new Error("GROQ_API_KEY is not set in .env. Get a free key at https://console.groq.com");
+    }
     return new ChatGroq({
-        model: "llama3-70b-8192",
+        model: "llama-3.3-70b-versatile",
         apiKey: process.env.GROQ_API_KEY,
         temperature: 0,
     });
@@ -233,7 +242,7 @@ app.post("/api/scheme-form", async (req, res) => {
         const contextText = retrievedDocs.map(doc => doc.pageContent).join("\n\n");
 
         const llm = new ChatGroq({
-            model: "llama3-70b-8192",
+            model: "llama-3.3-70b-versatile",
             apiKey: process.env.GROQ_API_KEY,
             temperature: 0.1,
         });
@@ -315,7 +324,7 @@ app.post("/api/translate", async (req, res) => {
     try {
         const { text, langCode } = req.body;
         if (!text) return res.status(400).json({ error: "Missing text" });
-        
+
         const llm = getLLM();
         const langName = LANG_NAMES[langCode] || "the local Indian language";
         const response = await llm.invoke(
